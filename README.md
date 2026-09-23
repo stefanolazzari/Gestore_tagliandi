@@ -1,0 +1,1 @@
+# Gestore_tagliandi
