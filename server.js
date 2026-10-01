@@ -43,6 +43,24 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Clienti (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nome VARCHAR(100) NOT NULL,
+        cognome VARCHAR(100) NOT NULL,
+        email VARCHAR(255),
+        telefono VARCHAR(50) NOT NULL,
+        UNIQUE KEY unique_cliente (nome, cognome, telefono)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await pool.query(`
+      INSERT INTO Clienti (nome, cognome, email, telefono)
+      SELECT DISTINCT nome, cognome, email, telefono
+      FROM interventi
+      ON DUPLICATE KEY UPDATE email = COALESCE(VALUES(email), email)
+    `);
+
     console.log("Database pronto");
   } catch (error) {
     console.error("Errore di connessione al database:", error.message);
@@ -72,6 +90,18 @@ app.get("/api/interventi", async (req, res) => {
   }
 });
 
+app.get("/api/clienti", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, nome, cognome, email, telefono FROM Clienti ORDER BY cognome, nome"
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Errore nel recupero clienti:", error.message);
+    res.status(500).json({ message: "Errore nel recupero clienti", error: error.message });
+  }
+});
+
 app.post(["/api/interventi", "/api/interventi/add"], async (req, res) => {
   const {
     nome,
@@ -96,8 +126,24 @@ app.post(["/api/interventi", "/api/interventi/add"], async (req, res) => {
     });
   }
 
+  let connection;
   try {
-    const [result] = await pool.execute(
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.execute(
+      `INSERT INTO Clienti (nome, cognome, email, telefono)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE email = COALESCE(VALUES(email), email)`,
+      [
+        nome.trim(),
+        cognome.trim(),
+        email ? email.trim() : null,
+        telefono.trim(),
+      ]
+    );
+
+    const [result] = await connection.execute(
       `INSERT INTO interventi
         (nome, cognome, email, telefono, targa, modello, anno, chilometraggio, intervento, data_prevista, note, privacy)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -116,23 +162,32 @@ app.post(["/api/interventi", "/api/interventi/add"], async (req, res) => {
         true,
       ]
     );
+    await connection.commit();
 
     res.status(201).json({
       message: "Intervento salvato correttamente.",
       id: result.insertId,
     });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error("Errore durante l'annullamento del salvataggio:", rollbackError.message);
+      }
+    }
     console.error("Errore durante il salvataggio dell'intervento:", error.message);
     res.status(500).json({
       message: "Errore durante il salvataggio dell'intervento.",
       error: error.message,
-	  
     });
+  } finally {
+    connection?.release();
   }
 });
 
-initDatabase();
-
-app.listen(port, () => {
-  console.log(`Server avviato su http://localhost:${port}`);
+initDatabase().then(() => {
+  app.listen(port, () => {
+    console.log(`Server avviato su http://localhost:${port}`);
+  });
 });

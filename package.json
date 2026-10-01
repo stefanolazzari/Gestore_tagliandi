@@ -4,6 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
+    "dev": "docker compose up -d mysql && { attempt=0; until docker exec mysql-dev mysqladmin ping -uutente -ppassword --silent; do attempt=$((attempt + 1)); if [ \"$attempt\" -ge 30 ]; then echo \"MySQL non è pronto dopo 30 secondi.\" >&2; exit 1; fi; sleep 1; done; } && node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

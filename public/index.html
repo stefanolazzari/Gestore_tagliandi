@@ -27,6 +27,15 @@
             <span class="section-number">01</span>
             <h2 id="form-title">Dati utente</h2>
           </div>
+          <div class="contact-actions">
+            <button type="button" id="show-contacts" aria-controls="contacts-panel">
+              Rubrica
+            </button>
+          </div>
+          <div id="contacts-panel" class="contact-picker" hidden>
+            <p id="contacts-status" class="records-status" role="status" aria-live="polite"></p>
+            <ul id="contacts-list" class="contacts-list"></ul>
+          </div>
           <div class="fields">
             <div class="field">
               <label for="nome">Nome <span class="required" aria-hidden="true">*</span></label>
@@ -110,10 +119,150 @@
         </div>
       </form>
     </section>
+
+    <section class="records-section" aria-labelledby="records-title">
+      <button type="button" id="show-records" aria-controls="records-panel">
+        Visualizza tutti gli interventi
+      </button>
+      <div id="records-panel" class="form-shell records-shell" hidden>
+        <div class="records-content">
+          <h2 id="records-title">Interventi registrati</h2>
+          <p id="records-status" class="records-status" role="status" aria-live="polite"></p>
+          <div class="table-scroll">
+            <table id="records-table" hidden>
+              <thead>
+                <tr>
+                  <th scope="col">ID</th>
+                  <th scope="col">Nome</th>
+                  <th scope="col">Cognome</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Telefono</th>
+                  <th scope="col">Targa</th>
+                  <th scope="col">Modello</th>
+                  <th scope="col">Anno</th>
+                  <th scope="col">Chilometraggio</th>
+                  <th scope="col">Intervento</th>
+                  <th scope="col">Data prevista</th>
+                  <th scope="col">Note</th>
+                  <th scope="col">Privacy</th>
+                  <th scope="col">Creato il</th>
+                </tr>
+              </thead>
+              <tbody id="records-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
     const form = document.getElementById("intervento-form");
+    const showRecordsButton = document.getElementById("show-records");
+    const recordsPanel = document.getElementById("records-panel");
+    const recordsStatus = document.getElementById("records-status");
+    const recordsTable = document.getElementById("records-table");
+    const recordsBody = document.getElementById("records-body");
+    const showContactsButton = document.getElementById("show-contacts");
+    const contactsPanel = document.getElementById("contacts-panel");
+    const contactsStatus = document.getElementById("contacts-status");
+    const contactsList = document.getElementById("contacts-list");
+
+    showContactsButton.addEventListener("click", async () => {
+      contactsPanel.hidden = false;
+      showContactsButton.disabled = true;
+      contactsStatus.textContent = "Caricamento rubrica...";
+      contactsList.replaceChildren();
+
+      try {
+        const response = await fetch("/api/clienti");
+        const clients = await response.json();
+
+        if (!response.ok) {
+          throw new Error(clients.message || "Errore durante il recupero della rubrica.");
+        }
+
+        if (clients.length === 0) {
+          contactsStatus.textContent = "Non ci sono clienti registrati.";
+          return;
+        }
+
+        clients.forEach((client) => {
+          const item = document.createElement("li");
+          const details = document.createElement("span");
+          details.textContent = `${client.nome} ${client.cognome} · ${client.email || "Email non disponibile"} · ${client.telefono}`;
+
+          const selectButton = document.createElement("button");
+          selectButton.type = "button";
+          selectButton.textContent = "Usa cliente";
+          selectButton.addEventListener("click", () => {
+            form.elements.namedItem("nome").value = client.nome;
+            form.elements.namedItem("cognome").value = client.cognome;
+            form.elements.namedItem("email").value = client.email || "";
+            form.elements.namedItem("telefono").value = client.telefono;
+            contactsStatus.textContent = `Dati di ${client.nome} ${client.cognome} inseriti nel modulo.`;
+            form.elements.namedItem("targa").focus();
+          });
+
+          item.append(details, selectButton);
+          contactsList.append(item);
+        });
+
+        contactsStatus.textContent = `${clients.length} clienti in rubrica.`;
+      } catch (error) {
+        contactsStatus.textContent = error.message || "Errore durante il recupero della rubrica.";
+      } finally {
+        showContactsButton.disabled = false;
+      }
+    });
+
+    showRecordsButton.addEventListener("click", async () => {
+      recordsPanel.hidden = false;
+      showRecordsButton.disabled = true;
+      recordsStatus.textContent = "Caricamento interventi...";
+      recordsTable.hidden = true;
+      recordsBody.replaceChildren();
+
+      try {
+        const response = await fetch("/api/interventi");
+        const records = await response.json();
+
+        if (!response.ok) {
+          throw new Error(records.message || "Errore durante il recupero degli interventi.");
+        }
+
+        if (records.length === 0) {
+          recordsStatus.textContent = "Non ci sono interventi registrati.";
+          return;
+        }
+
+        const fields = [
+          "id", "nome", "cognome", "email", "telefono", "targa", "modello",
+          "anno", "chilometraggio", "intervento", "data_prevista", "note",
+          "privacy", "created_at",
+        ];
+
+        records.forEach((record) => {
+          const row = document.createElement("tr");
+          fields.forEach((field) => {
+            const cell = document.createElement("td");
+            const value = record[field];
+            cell.textContent = field === "privacy"
+              ? (value ? "Sì" : "No")
+              : (value == null ? "—" : String(value));
+            row.append(cell);
+          });
+          recordsBody.append(row);
+        });
+
+        recordsStatus.textContent = `${records.length} interventi trovati.`;
+        recordsTable.hidden = false;
+      } catch (error) {
+        recordsStatus.textContent = error.message || "Errore durante il recupero degli interventi.";
+      } finally {
+        showRecordsButton.disabled = false;
+      }
+    });
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();

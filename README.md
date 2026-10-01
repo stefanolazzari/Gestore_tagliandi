@@ -38,10 +38,10 @@
 5. Avviare l’applicazione in un terminale:
 
 	```bash
-	node server.js
+	npm run dev
 	```
 
-	L’app sarà disponibile su <http://localhost:3000>.
+	Il comando avvia MySQL, attende che accetti connessioni (fino a 30 secondi) e avvia il server. L’app sarà disponibile su <http://localhost:3000>.
 
 ## Test dell’app e del database
 
@@ -73,6 +73,7 @@ SELECT * FROM interventi;
 ```
 
 La tabella `interventi` viene creata automaticamente all’avvio di `server.js`.
+Viene creata anche la tabella `Clienti`, inizializzata con i clienti già presenti negli interventi. I nuovi interventi aggiornano la rubrica; il pulsante **Rubrica** nel modulo consente di selezionare un cliente e compilare i relativi dati.
 
 ## Log e arresto
 
