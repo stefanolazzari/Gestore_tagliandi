@@ -33,6 +33,10 @@
             </button>
           </div>
           <div id="contacts-panel" class="contact-picker" hidden>
+            <div class="records-heading">
+              <h3>Clienti registrati</h3>
+              <button type="button" id="export-contacts" disabled>Esporta in Excel</button>
+            </div>
             <p id="contacts-status" class="records-status" role="status" aria-live="polite"></p>
             <ul id="contacts-list" class="contacts-list"></ul>
           </div>
@@ -126,8 +130,20 @@
       </button>
       <div id="records-panel" class="form-shell records-shell" hidden>
         <div class="records-content">
-          <h2 id="records-title">Interventi registrati</h2>
+          <div class="records-heading">
+            <h2 id="records-title">Interventi registrati</h2>
+            <button type="button" id="export-records" disabled>Esporta in Excel</button>
+          </div>
           <p id="records-status" class="records-status" role="status" aria-live="polite"></p>
+          <div id="records-search-container" class="records-search" hidden>
+            <label for="records-search">Cerca negli interventi</label>
+            <input
+              type="search"
+              id="records-search"
+              placeholder="Nome, targa, intervento, note..."
+              autocomplete="off"
+            >
+          </div>
           <div class="table-scroll">
             <table id="records-table" hidden>
               <thead>
@@ -163,14 +179,68 @@
     const recordsStatus = document.getElementById("records-status");
     const recordsTable = document.getElementById("records-table");
     const recordsBody = document.getElementById("records-body");
+    const recordsSearchContainer = document.getElementById("records-search-container");
+    const recordsSearch = document.getElementById("records-search");
+    const exportRecordsButton = document.getElementById("export-records");
     const showContactsButton = document.getElementById("show-contacts");
     const contactsPanel = document.getElementById("contacts-panel");
     const contactsStatus = document.getElementById("contacts-status");
     const contactsList = document.getElementById("contacts-list");
+    const exportContactsButton = document.getElementById("export-contacts");
+    const recordFields = [
+      "id", "nome", "cognome", "email", "telefono", "targa", "modello",
+      "anno", "chilometraggio", "intervento", "data_prevista", "note",
+      "privacy", "created_at",
+    ];
+    let loadedRecords = [];
+
+    function getFilteredRecords() {
+      const query = recordsSearch.value
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("it");
+      return loadedRecords.filter((record) =>
+        recordFields.some((field) => {
+          const value = field === "privacy"
+            ? (record[field] ? "Sì" : "No")
+            : record[field];
+          return String(value ?? "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLocaleLowerCase("it")
+            .includes(query);
+        })
+      );
+    }
+
+    function renderRecords() {
+      const filteredRecords = getFilteredRecords();
+      recordsBody.replaceChildren();
+      filteredRecords.forEach((record) => {
+        const row = document.createElement("tr");
+        recordFields.forEach((field) => {
+          const cell = document.createElement("td");
+          const value = record[field];
+          cell.textContent = field === "privacy"
+            ? (value ? "Sì" : "No")
+            : (value == null ? "—" : String(value));
+          row.append(cell);
+        });
+        recordsBody.append(row);
+      });
+
+      recordsStatus.textContent = filteredRecords.length === loadedRecords.length
+        ? `${loadedRecords.length} interventi trovati.`
+        : `${filteredRecords.length} di ${loadedRecords.length} interventi visualizzati.`;
+    }
+
+    recordsSearch.addEventListener("input", renderRecords);
 
     showContactsButton.addEventListener("click", async () => {
       contactsPanel.hidden = false;
       showContactsButton.disabled = true;
+      exportContactsButton.disabled = true;
       contactsStatus.textContent = "Caricamento rubrica...";
       contactsList.replaceChildren();
 
@@ -209,6 +279,7 @@
         });
 
         contactsStatus.textContent = `${clients.length} clienti in rubrica.`;
+        exportContactsButton.disabled = false;
       } catch (error) {
         contactsStatus.textContent = error.message || "Errore durante il recupero della rubrica.";
       } finally {
@@ -216,9 +287,40 @@
       }
     });
 
+    exportContactsButton.addEventListener("click", async () => {
+      exportContactsButton.disabled = true;
+      contactsStatus.textContent = "Preparazione del file Excel...";
+
+      try {
+        const response = await fetch("/api/clienti/export");
+
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.message || "Errore durante l'esportazione dei clienti.");
+        }
+
+        const file = await response.blob();
+        const downloadUrl = URL.createObjectURL(file);
+        const downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download = "clienti.xlsx";
+        downloadLink.click();
+        URL.revokeObjectURL(downloadUrl);
+        contactsStatus.textContent = "File Excel dei clienti scaricato.";
+      } catch (error) {
+        contactsStatus.textContent = error.message || "Errore durante l'esportazione dei clienti.";
+      } finally {
+        exportContactsButton.disabled = contactsList.childElementCount === 0;
+      }
+    });
+
     showRecordsButton.addEventListener("click", async () => {
       recordsPanel.hidden = false;
       showRecordsButton.disabled = true;
+      exportRecordsButton.disabled = true;
+      recordsSearchContainer.hidden = true;
+      recordsSearch.value = "";
+      loadedRecords = [];
       recordsStatus.textContent = "Caricamento interventi...";
       recordsTable.hidden = true;
       recordsBody.replaceChildren();
@@ -236,31 +338,50 @@
           return;
         }
 
-        const fields = [
-          "id", "nome", "cognome", "email", "telefono", "targa", "modello",
-          "anno", "chilometraggio", "intervento", "data_prevista", "note",
-          "privacy", "created_at",
-        ];
-
-        records.forEach((record) => {
-          const row = document.createElement("tr");
-          fields.forEach((field) => {
-            const cell = document.createElement("td");
-            const value = record[field];
-            cell.textContent = field === "privacy"
-              ? (value ? "Sì" : "No")
-              : (value == null ? "—" : String(value));
-            row.append(cell);
-          });
-          recordsBody.append(row);
-        });
-
-        recordsStatus.textContent = `${records.length} interventi trovati.`;
+        loadedRecords = records;
+        recordsSearchContainer.hidden = false;
         recordsTable.hidden = false;
+        renderRecords();
+        exportRecordsButton.disabled = false;
       } catch (error) {
         recordsStatus.textContent = error.message || "Errore durante il recupero degli interventi.";
       } finally {
         showRecordsButton.disabled = false;
+      }
+    });
+
+    exportRecordsButton.addEventListener("click", async () => {
+      exportRecordsButton.disabled = true;
+      recordsStatus.textContent = "Preparazione del file Excel...";
+
+      try {
+        const response = await fetch("/api/interventi/export", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ids: getFilteredRecords().map((record) => record.id),
+          }),
+        });
+
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.message || "Errore durante l'esportazione degli interventi.");
+        }
+
+        const file = await response.blob();
+        const downloadUrl = URL.createObjectURL(file);
+        const downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download = "interventi.xlsx";
+        downloadLink.click();
+        URL.revokeObjectURL(downloadUrl);
+        recordsStatus.textContent = "File Excel scaricato.";
+      } catch (error) {
+        recordsStatus.textContent = error.message || "Errore durante l'esportazione degli interventi.";
+      } finally {
+        exportRecordsButton.disabled = recordsTable.hidden;
       }
     });
 

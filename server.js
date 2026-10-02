@@ -1,4 +1,5 @@
 const express = require("express");
+const ExcelJS = require("exceljs");
 const path = require("path");
 const mysql = require("mysql2/promise");
 require('dotenv').config();
@@ -56,9 +57,9 @@ async function initDatabase() {
 
     await pool.query(`
       INSERT INTO Clienti (nome, cognome, email, telefono)
-      SELECT DISTINCT nome, cognome, email, telefono
-      FROM interventi
-      ON DUPLICATE KEY UPDATE email = COALESCE(VALUES(email), email)
+      SELECT DISTINCT i.nome, i.cognome, i.email, i.telefono
+      FROM interventi AS i
+      ON DUPLICATE KEY UPDATE email = COALESCE(VALUES(email), Clienti.email)
     `);
 
     console.log("Database pronto");
@@ -80,6 +81,85 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+async function exportInterventi(req, res) {
+  try {
+    let query = `
+      SELECT
+        id, nome, cognome, email, telefono, targa, modello, anno,
+        chilometraggio, intervento,
+        DATE_FORMAT(data_prevista, '%Y-%m-%d') AS data_prevista,
+        note, privacy,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+      FROM interventi
+    `;
+    let queryParams = [];
+
+    if (req.method === "POST") {
+      const { ids } = req.body || {};
+      if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id) && id > 0)) {
+        return res.status(400).json({ message: "Elenco degli interventi non valido." });
+      }
+
+      if (ids.length === 0) {
+        query += " WHERE 1 = 0";
+      } else {
+        const placeholders = ids.map(() => "?").join(", ");
+        query += ` WHERE id IN (${placeholders}) ORDER BY FIELD(id, ${placeholders})`;
+        queryParams = [...ids, ...ids];
+      }
+    } else {
+      query += " ORDER BY created_at DESC";
+    }
+
+    const [rows] = await pool.query(query, queryParams);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Interventi");
+    worksheet.columns = [
+      { header: "ID", key: "id", width: 10 },
+      { header: "Nome", key: "nome", width: 18 },
+      { header: "Cognome", key: "cognome", width: 18 },
+      { header: "Email", key: "email", width: 28 },
+      { header: "Telefono", key: "telefono", width: 18 },
+      { header: "Targa", key: "targa", width: 14 },
+      { header: "Modello", key: "modello", width: 24 },
+      { header: "Anno", key: "anno", width: 10 },
+      { header: "Chilometraggio", key: "chilometraggio", width: 18 },
+      { header: "Intervento", key: "intervento", width: 22 },
+      { header: "Data prevista", key: "data_prevista", width: 16 },
+      { header: "Note", key: "note", width: 40 },
+      { header: "Privacy", key: "privacy", width: 12 },
+      { header: "Creato il", key: "created_at", width: 22 },
+    ];
+    worksheet.addRows(rows.map((row) => ({
+      ...row,
+      privacy: row.privacy ? "Sì" : "No",
+    })));
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.autoFilter = {
+      from: "A1",
+      to: `N${Math.max(rows.length + 1, 1)}`,
+    };
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res
+      .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      .set("Content-Disposition", 'attachment; filename="interventi.xlsx"')
+      .send(Buffer.from(buffer));
+  } catch (error) {
+    console.error("Errore durante l'esportazione degli interventi:", error.message);
+    res.status(500).json({
+      message: "Errore durante l'esportazione degli interventi.",
+      error: error.message,
+    });
+  }
+}
+
+app.route("/api/interventi/export")
+  .get(exportInterventi)
+  .post(exportInterventi);
+
 app.get("/api/interventi", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM interventi ORDER BY created_at DESC");
@@ -99,6 +179,43 @@ app.get("/api/clienti", async (req, res) => {
   } catch (error) {
     console.error("Errore nel recupero clienti:", error.message);
     res.status(500).json({ message: "Errore nel recupero clienti", error: error.message });
+  }
+});
+
+app.get("/api/clienti/export", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, nome, cognome, email, telefono FROM Clienti ORDER BY cognome, nome"
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Clienti");
+    worksheet.columns = [
+      { header: "ID", key: "id", width: 10 },
+      { header: "Nome", key: "nome", width: 18 },
+      { header: "Cognome", key: "cognome", width: 18 },
+      { header: "Email", key: "email", width: 28 },
+      { header: "Telefono", key: "telefono", width: 18 },
+    ];
+    worksheet.addRows(rows);
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.autoFilter = {
+      from: "A1",
+      to: `E${Math.max(rows.length + 1, 1)}`,
+    };
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    res
+      .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      .set("Content-Disposition", 'attachment; filename="clienti.xlsx"')
+      .send(Buffer.from(buffer));
+  } catch (error) {
+    console.error("Errore durante l'esportazione dei clienti:", error.message);
+    res.status(500).json({
+      message: "Errore durante l'esportazione dei clienti.",
+      error: error.message,
+    });
   }
 });
 

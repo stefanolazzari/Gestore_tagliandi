@@ -75,6 +75,9 @@ SELECT * FROM interventi;
 La tabella `interventi` viene creata automaticamente all’avvio di `server.js`.
 Viene creata anche la tabella `Clienti`, inizializzata con i clienti già presenti negli interventi. I nuovi interventi aggiornano la rubrica; il pulsante **Rubrica** nel modulo consente di selezionare un cliente e compilare i relativi dati.
 
+Nella sezione **Visualizza tutti gli interventi**, una ricerca immediata filtra gli interventi in base a qualsiasi campo visualizzato, come nome, targa, tipo di intervento o note. Il pulsante **Esporta in Excel** scarica in formato `.xlsx` solo i risultati corrispondenti al filtro corrente.
+Nel pannello **Rubrica**, il pulsante **Esporta in Excel** scarica tutti i clienti registrati, con i relativi dati di contatto, in un file `.xlsx`.
+
 ## Log e arresto
 
 Per visualizzare i log di MySQL:
